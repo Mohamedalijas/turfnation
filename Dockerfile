@@ -19,4 +19,5 @@ COPY --from=build /app/publish .
 EXPOSE 5000
 
 # Start the app
-ENTRYPOINT ["dotnet", "TURF-API.dll"]
+# Make sure the DLL name matches your project file name (case-sensitive)
+ENTRYPOINT ["dotnet", "turfnation.dll"]
