@@ -1,0 +1,6 @@
+@turfnation_HostAddress = http://localhost:5062
+
+GET {{turfnation_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
