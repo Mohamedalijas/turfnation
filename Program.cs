@@ -45,7 +45,7 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Swagger with JWT Support
+// Swagger with JWT Support (enabled in all environments)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -74,7 +74,7 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityRequirement(securityReq);
 });
 
-builder.WebHost.UseUrls("http://0.0.0.0:5062");
+builder.WebHost.UseUrls("http://0.0.0.0:5000"); // Match Docker EXPOSE port
 var app = builder.Build();
 
 // Redirect root (/) to Swagger UI
@@ -84,12 +84,13 @@ app.MapGet("/", context =>
     return Task.CompletedTask;
 });
 
-// Middleware
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Turf Booking Auth API v1");
+    c.RoutePrefix = "swagger"; // Swagger accessible at /swagger
+});
 
 app.UseHttpsRedirection();
 
