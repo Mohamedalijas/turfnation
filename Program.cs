@@ -1,25 +1,20 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using MongoDB.Driver;
 using System.Text;
 using TurfAuthAPI.Config;
 using TurfAuthAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load environment variables from .env (for local development)
-DotNetEnv.Env.Load();
-
-// MongoDB configuration (supports env variable for Render)
+// MongoDB configuration
 builder.Services.Configure<MongoDbSettings>(options =>
 {
-    options.ConnectionString = Environment.GetEnvironmentVariable("MONGO_CONNECTION") 
-                              ?? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value;
-    
-    var uri = new MongoUrl(options.ConnectionString);
-    options.DatabaseName = uri.DatabaseName 
-                           ?? builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
+    var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
+    options.ConnectionString = string.IsNullOrEmpty(mongoConn) 
+                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value 
+                               : mongoConn;
+    options.DatabaseName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
 });
 
 // Add services
@@ -29,11 +24,9 @@ builder.Services.AddSingleton<TokenService>();
 
 builder.Services.AddControllers();
 
-// Configure JWT (read from environment variables)
-var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY") 
-             ?? throw new InvalidOperationException("JWT_KEY not configured");
-var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "TurfAuthAPI";
-var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "TurfAuthAPIUsers";
+// Configure JWT
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -42,7 +35,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = true; // Enforce HTTPS in production
+    options.RequireHttpsMetadata = false;
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -50,97 +43,58 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(jwtKey)),
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(key),
         ClockSkew = TimeSpan.Zero
     };
 });
 
-// Swagger with better security setup
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Turf Booking Auth API",
-        Version = "v1",
-        Description = "JWT Authentication API for Turf Booking System"
-    });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Turf Booking Auth API", Version = "v1" });
 
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    var securityScheme = new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme.",
         Name = "Authorization",
-        In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
-        BearerFormat = "JWT"
-    });
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme."
+    };
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    var securityReq = new OpenApiSecurityRequirement
     {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
+        { securityScheme, new[] { "Bearer" } }
+    };
+
+    c.AddSecurityDefinition("Bearer", securityScheme);
+    c.AddSecurityRequirement(securityReq);
 });
 
-// Health Checks
-builder.Services.AddHealthChecks();
-
-// CORS (adjust according to your frontend URL)
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins(
-                "https://your-frontend-domain.com",
-                "http://localhost:3000"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
-
-// Listen on all interfaces (for Docker/Render)
-var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-
+builder.WebHost.UseUrls("http://0.0.0.0:5000"); // matches Docker EXPOSE
 var app = builder.Build();
 
-// Middleware pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-}
-
-app.UseHttpsRedirection();
-app.UseCors("AllowFrontend");
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Health check endpoint
-app.MapHealthChecks("/health");
-
 // Redirect root to Swagger UI
-app.MapGet("/", () => Results.Redirect("/swagger"));
+app.MapGet("/", context =>
+{
+    context.Response.Redirect("/swagger");
+    return Task.CompletedTask;
+});
 
 // Enable Swagger in all environments
 app.UseSwagger();
-app.UseSwaggerUI(c => 
+app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Turf Booking Auth API v1");
-    c.RoutePrefix = "swagger";
+    c.RoutePrefix = "swagger"; // Swagger at /swagger
 });
 
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 app.Run();
