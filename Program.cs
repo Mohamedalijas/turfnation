@@ -1,41 +1,40 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using MongoDB.Driver;
 using System.Text;
 using TurfAuthAPI.Config;
 using TurfAuthAPI.Services;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// MongoDB configuration
-builder.Services.Configure<MongoDbSettings>(options =>
-{
-    var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
-    options.ConnectionString = string.IsNullOrEmpty(mongoConn)
-                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value
-                               : mongoConn;
-    options.DatabaseName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
-});
+// Read Mongo settings early and test connection
+var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
+var mongoConnectionString = string.IsNullOrEmpty(mongoConn)
+    ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value
+    : mongoConn;
 
-// Read MongoDB settings and test connection immediately
-var mongoConnectionString = Environment.GetEnvironmentVariable("MONGO_CONNECTION") ??
-                            builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value;
 var mongoDbName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
-
-Console.WriteLine($"📦 Using MongoDB connection string: {mongoConnectionString}");
-Console.WriteLine($"📂 Target Database: {mongoDbName}");
 
 try
 {
+    Console.WriteLine($"[Startup] Testing MongoDB connection to: {mongoConnectionString}, DB: {mongoDbName}");
     var client = new MongoClient(mongoConnectionString);
-    client.ListDatabaseNames(); // test query
-    Console.WriteLine("✅ MongoDB connection successful.");
+    client.ListDatabaseNames(); // test connection
+    Console.WriteLine("✅ MongoDB connection test successful.");
 }
 catch (Exception ex)
 {
-    Console.WriteLine("❌ MongoDB connection failed: " + ex.Message);
+    Console.WriteLine("❌ MongoDB connection test failed: " + ex);
+    throw; // fail fast so we see the error in logs
 }
+
+// Configure MongoDbSettings for DI
+builder.Services.Configure<MongoDbSettings>(options =>
+{
+    options.ConnectionString = mongoConnectionString;
+    options.DatabaseName = mongoDbName;
+});
 
 // Add services
 builder.Services.AddSingleton<AuthService>();
@@ -44,7 +43,7 @@ builder.Services.AddSingleton<TokenService>();
 
 builder.Services.AddControllers();
 
-// Configure JWT
+// JWT setup
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]);
 
@@ -95,17 +94,16 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityRequirement(securityReq);
 });
 
-builder.WebHost.UseUrls("http://0.0.0.0:5000"); // matches Docker EXPOSE
+builder.WebHost.UseUrls("http://0.0.0.0:5000");
+
 var app = builder.Build();
 
-// Redirect root to Swagger UI
 app.MapGet("/", context =>
 {
     context.Response.Redirect("/swagger");
     return Task.CompletedTask;
 });
 
-// Enable Swagger in all environments
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
