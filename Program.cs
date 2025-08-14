@@ -1,20 +1,26 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MongoDB.Driver;
 using System.Text;
 using TurfAuthAPI.Config;
 using TurfAuthAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// MongoDB configuration
+// MongoDB configuration (supports env variable for Render)
 builder.Services.Configure<MongoDbSettings>(options =>
 {
     var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
-    options.ConnectionString = string.IsNullOrEmpty(mongoConn) 
-                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value 
+    options.ConnectionString = string.IsNullOrEmpty(mongoConn)
+                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value
                                : mongoConn;
-    options.DatabaseName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
+
+    // Extract DB name from connection string if present, else use config
+    var uri = new MongoUrl(options.ConnectionString);
+    options.DatabaseName = string.IsNullOrEmpty(uri.DatabaseName)
+                           ? builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value
+                           : uri.DatabaseName;
 });
 
 // Add services
@@ -54,7 +60,11 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Turf Booking Auth API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Turf Booking Auth API",
+        Version = "v1"
+    });
 
     var securityScheme = new OpenApiSecurityScheme
     {
@@ -75,7 +85,9 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityRequirement(securityReq);
 });
 
-builder.WebHost.UseUrls("http://0.0.0.0:5000"); // matches Docker EXPOSE
+// Listen on all interfaces (for Docker/Render)
+builder.WebHost.UseUrls("http://0.0.0.0:5000");
+
 var app = builder.Build();
 
 // Redirect root to Swagger UI
@@ -90,7 +102,7 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Turf Booking Auth API v1");
-    c.RoutePrefix = "swagger"; // Swagger at /swagger
+    c.RoutePrefix = "swagger";
 });
 
 app.UseHttpsRedirection();
