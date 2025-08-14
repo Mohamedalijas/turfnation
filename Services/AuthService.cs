@@ -16,15 +16,35 @@ namespace TurfAuthAPI.Services
         private readonly TokenService _tokenService;
 
         public AuthService(
-            IOptions<MongoDbSettings> mongoSettings, 
+            IOptions<MongoDbSettings> mongoSettings,
             EmailService emailService,
             TokenService tokenService)
         {
-            var client = new MongoClient(mongoSettings.Value.ConnectionString);
-            var db = client.GetDatabase(mongoSettings.Value.DatabaseName);
-            _users = db.GetCollection<User>("Users");
             _emailService = emailService;
             _tokenService = tokenService;
+
+            try
+            {
+                string connString = mongoSettings.Value.ConnectionString;
+                string dbName = mongoSettings.Value.DatabaseName;
+
+                Console.WriteLine($"[AuthService] Using MongoDB connection: {connString}");
+                Console.WriteLine($"[AuthService] Target database: {dbName}");
+
+                var client = new MongoClient(connString);
+                // Optional: test the connection
+                client.ListDatabaseNames();
+
+                var db = client.GetDatabase(dbName);
+                _users = db.GetCollection<User>("Users");
+
+                Console.WriteLine("[AuthService] ✅ MongoDB connection established successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[AuthService] ❌ MongoDB connection failed: " + ex.Message);
+                throw;
+            }
         }
 
         public async Task<string> SignupAsync(SignupRequest request)
@@ -49,7 +69,6 @@ namespace TurfAuthAPI.Services
             };
 
             await _users.InsertOneAsync(user);
-
             await _emailService.SendEmailAsync(request.Email, "OTP Verification", $"Your OTP is: {otp}");
 
             return "OTP sent to registered email for verification";
@@ -71,7 +90,6 @@ namespace TurfAuthAPI.Services
             return "Account verified successfully";
         }
 
-        // New Login method: validates password, generates OTP, sends email
         public async Task<string> LoginAsync(LoginRequest request)
         {
             var user = await _users.Find(u => u.Email == request.Email && u.Status == "active").FirstOrDefaultAsync();
@@ -89,13 +107,11 @@ namespace TurfAuthAPI.Services
                 .Set(u => u.OTPExpiry, DateTime.UtcNow.AddMinutes(1));
 
             await _users.UpdateOneAsync(u => u.Email == request.Email, update);
-
             await _emailService.SendEmailAsync(request.Email, "Login OTP", $"Your login OTP is: {otp}");
 
             return "OTP sent to registered email for verification";
         }
 
-        // New Verify Login OTP method: check OTP, generate JWT token if valid
         public async Task<(string message, string token, User user)> VerifyLoginOTPAsync(OTPVerifyRequest request)
         {
             var user = await _users.Find(u => u.Email == request.Email && u.Status == "active").FirstOrDefaultAsync();
