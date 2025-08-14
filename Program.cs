@@ -7,10 +7,15 @@ using TurfAuthAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load settings
-builder.Services.Configure<MongoDbSettings>(
-    builder.Configuration.GetSection("MongoDbSettings")
-);
+// MongoDB configuration
+builder.Services.Configure<MongoDbSettings>(options =>
+{
+    var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
+    options.ConnectionString = string.IsNullOrEmpty(mongoConn) 
+                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value 
+                               : mongoConn;
+    options.DatabaseName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
+});
 
 // Add services
 builder.Services.AddSingleton<AuthService>();
@@ -45,15 +50,11 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Swagger with JWT Support (enabled in all environments)
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Turf Booking Auth API",
-        Version = "v1"
-    });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Turf Booking Auth API", Version = "v1" });
 
     var securityScheme = new OpenApiSecurityScheme
     {
@@ -74,10 +75,10 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityRequirement(securityReq);
 });
 
-builder.WebHost.UseUrls("http://0.0.0.0:5000"); // Match Docker EXPOSE port
+builder.WebHost.UseUrls("http://0.0.0.0:5000"); // matches Docker EXPOSE
 var app = builder.Build();
 
-// Redirect root (/) to Swagger UI
+// Redirect root to Swagger UI
 app.MapGet("/", context =>
 {
     context.Response.Redirect("/swagger");
@@ -89,14 +90,11 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Turf Booking Auth API v1");
-    c.RoutePrefix = "swagger"; // Swagger accessible at /swagger
+    c.RoutePrefix = "swagger"; // Swagger at /swagger
 });
 
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
