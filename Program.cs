@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MongoDB.Driver;
 using System.Text;
 using TurfAuthAPI.Config;
 using TurfAuthAPI.Services;
@@ -11,11 +12,30 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<MongoDbSettings>(options =>
 {
     var mongoConn = Environment.GetEnvironmentVariable("MONGO_CONNECTION");
-    options.ConnectionString = string.IsNullOrEmpty(mongoConn) 
-                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value 
+    options.ConnectionString = string.IsNullOrEmpty(mongoConn)
+                               ? builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value
                                : mongoConn;
     options.DatabaseName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
 });
+
+// Read MongoDB settings and test connection immediately
+var mongoConnectionString = Environment.GetEnvironmentVariable("MONGO_CONNECTION") ??
+                            builder.Configuration.GetSection("MongoDbSettings:ConnectionString").Value;
+var mongoDbName = builder.Configuration.GetSection("MongoDbSettings:DatabaseName").Value;
+
+Console.WriteLine($"📦 Using MongoDB connection string: {mongoConnectionString}");
+Console.WriteLine($"📂 Target Database: {mongoDbName}");
+
+try
+{
+    var client = new MongoClient(mongoConnectionString);
+    client.ListDatabaseNames(); // test query
+    Console.WriteLine("✅ MongoDB connection successful.");
+}
+catch (Exception ex)
+{
+    Console.WriteLine("❌ MongoDB connection failed: " + ex.Message);
+}
 
 // Add services
 builder.Services.AddSingleton<AuthService>();
@@ -90,7 +110,7 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "Turf Booking Auth API v1");
-    c.RoutePrefix = "swagger"; // Swagger at /swagger
+    c.RoutePrefix = "swagger";
 });
 
 app.UseHttpsRedirection();
